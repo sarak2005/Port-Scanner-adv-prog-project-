@@ -4,10 +4,13 @@ import re
 import sys
 import requests
 import time
+import os
 
-NVD_API_KEY = ""
+
+NVD_API_KEY = os.getenv("NVD_API_KEY", "").strip()
 NVD_API_URL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 HEADERS = {"apiKey": NVD_API_KEY} if NVD_API_KEY else {}
+API_CALL_DELAY = 0.6
 
 
 def getIpAddress():
@@ -16,7 +19,7 @@ def getIpAddress():
         try:
             ip_address_obj = ipaddress.ip_address(ip_add_entered)
             print("You entered a valid ip address.")
-            return ip_address_obj
+            return str(ip_address_obj)
         except Exception:
             print("You entered an invalid ip address. Try again.")
 
@@ -41,7 +44,6 @@ def getRange():
 
 def nmapsV(ip_address, port_min, port_max):
     nm = nmap.PortScanner()
-
     ports_spec = f"{port_min}-{port_max}"
     print(f"\nRunning nmap -sV on {ip_address} ports {ports_spec} ... (this may take a bit)")
 
@@ -56,13 +58,14 @@ def nmapsV(ip_address, port_min, port_max):
 
     if not tcp_dict:
         print("No TCP info returned (host down or no open ports in that range).")
-        sys.exit(0)
+        return []  # no open ports
 
     # table output
     print("\nScan results:")
     print(f"{'PORT':>6}  {'STATE':>7}  {'SERVICE':<12}  {'PRODUCT':<20}  {'VERSION':<12}  {'EXTRA'}")
-    print("-" * 80)
+    print("-" * 90)
 
+    open_services = []  # collect (port, product, version)
     for port, info in sorted(tcp_dict.items()):
         state = info.get('state', 'unknown')
         service = info.get('name', '') or ''
@@ -72,22 +75,22 @@ def nmapsV(ip_address, port_min, port_max):
 
         print(f"{port:>6}  {state:>7}  {service:<12}  {product:<20}  {version:<12}  {extra}")
 
-        if state != 'open' :
-            continue
+        if state == 'open':
+            # prefer product; fallback to service name if product missing
+            result_product = product if product else service
+            result_version = version
+            open_services.append((port, result_product, result_version))
 
-        result_product = product if product else service
-        result_version = version
+    return open_services
 
-        print(f"Port {port} is open: product={result_product!r}, version={result_version!r}")
+def searchCVE(product, version, max_results=10):
+    if not product:
+        return {}
 
-        return result_product, result_version
-
-
-def searchCVE(product, version):
-    query = f"{product} {version}"
+    query = f"{product} {version}".strip()
     params = {
         "keywordSearch": query,
-        "resultsPerPage": 10
+        "resultsPerPage": str(max_results)
     }
     try:
         response = requests.get(NVD_API_URL, params=params, headers=HEADERS, timeout=10)
@@ -103,18 +106,31 @@ def searchCVE(product, version):
 
 def cveResults(data):
     results = []
+    if not data:
+        return results
     for item in data.get("vulnerabilities", []):
         cve = item["cve"]
-        cve_id = cve["id"]
-        desc = cve["descriptions"][0]["value"]
+        cve_id = cve["id"] or cve.get("CVE_data_meta", {}).get("ID")
+        desc = ""
+        for d in cve.get("descriptions", []):
+            if d.get("lang") == "en":
+                desc = d.get("value", "")
+                break
+
         severity = "N/A"
         metrics = cve.get("metrics", {})
-        if "cvssMetricV31" in metrics:
-            severity = metrics["cvssMetricV31"][0]["cvssData"]["baseSeverity"]
-        elif "cvssMetricV2" in metrics:
-            severity = metrics["cvssMetricV2"][0]["cvssData"]["baseSeverity"]
-        results.append((cve_id, severity, desc))
-    return results
+        try:
+            if "cvssMetricV31" in metrics and metrics["cvssMetricV31"]:
+                severity = metrics["cvssMetricV31"][0]["cvssData"].get("baseSeverity", "N/A")
+            elif "cvssMetricV3" in metrics and metrics["cvssMetricV3"]:
+                severity = metrics["cvssMetricV3"][0]["cvssData"].get("baseSeverity", "N/A")
+            elif "cvssMetricV2" in metrics and metrics["cvssMetricV2"]:
+                severity = metrics["cvssMetricV2"][0]["cvssData"].get("baseSeverity", "N/A")
+        except Exception:
+            severity = "N/A"
+        if cve_id:
+            results.append((cve_id, severity, desc))
+        return results
 
 def main():
 
@@ -122,22 +138,45 @@ def main():
     ip_address = getIpAddress()
     port_min, port_max = getRange()
 
-    result_product, result_version = nmapsV(ip_address, port_min, port_max)
+    open_services = nmapsV(ip_address, port_min, port_max)
 
     #vulnerabilities scanner (CVE)
-    print(f"\n Scanning: {result_product} {result_version}")
-    data = searchCVE(result_product, result_version)
-    cves = cveResults(data)
+    if not open_services:
+        print("\nNo open services to check for CVEs.")
+        return
 
-    if cves:
-        for cve_id, severity, desc in cves:
-            print(f"\n {cve_id} | Severity: {severity}")
-            print(f"→ {desc[:150]}...")
-    else:
-        print("\n No known CVEs found for this service and version.")
+    print("\nChecking CVEs for open services (one by one):")
+    print("-" * 70)
 
-    time.sleep(1.5)
+    for port, product, version in open_services:
+        display_name = f"{product} {version}".strip() if version else product
+        print(f"\nPort {port} -> {display_name or '(unknown)'}")
+        if not product:
+            print("  No product name found; skipping CVE lookup.")
+            continue
+
+        data = searchCVE(product, version)
+        cves = cveResults(data)
+
+        if not cves and version:
+            time.sleep(API_CALL_DELAY)
+            print("  No CVEs found for exact version trying product-only search...")
+            data = searchCVE(product, "") #product only
+            cves = cveResults(data)
+
+        if cves:
+            for cve_id, severity, desc in cves:
+                print(f"\n {cve_id} | Severity: {severity}")
+                if desc:
+                    print(f"→ {desc[:180].strip()}...")
+
+        else:
+            print("\n No known CVEs found for this service and version.")
+
+        time.sleep(1.5)
+
+    print("\nAll done.")
 
 
-
-
+if __name__ == "__main__":
+    main()
