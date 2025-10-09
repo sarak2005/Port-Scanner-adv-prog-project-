@@ -5,6 +5,7 @@ import sys
 import requests
 import time
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 NVD_API_KEY = os.getenv("NVD_API_KEY", "").strip()
@@ -83,7 +84,7 @@ def nmapsV(ip_address, port_min, port_max):
 
     return open_services
 
-def searchCVE(product, version, max_results=10):
+def searchCVE(product, version, max_results=10): #data
     if not product:
         return {}
 
@@ -104,7 +105,7 @@ def searchCVE(product, version, max_results=10):
         return {}
 
 
-def cveResults(data):
+def cveResults(data): #filters data
     results = []
     if not data:
         return results
@@ -132,50 +133,78 @@ def cveResults(data):
             results.append((cve_id, severity, desc))
         return results
 
+
+def vulScan(port, product, version): #works once per time
+
+    if not product:
+        print("  No product name found; skipping CVE lookup.")
+        return (port, product, version, [])
+
+    if product and not version:
+        version = ""
+
+    display_name = f"{product} {version}".strip()
+    print(f"\nStarting CVE lookup for port {port}: {display_name or '(unknown)'}")
+
+    data = searchCVE(product, version)
+    cves = cveResults(data)
+
+    if not cves and version :
+        time.sleep(API_CALL_DELAY)
+        print("  No CVEs found for exact version trying product-only search...")
+        data = searchCVE(product, "")  # product only
+        cves = cveResults(data)
+
+    time.sleep(1.5)
+    return (port, product, version, cves)
+
+
 def main():
 
     #port scanner
     ip_address = getIpAddress()
     port_min, port_max = getRange()
-
     open_services = nmapsV(ip_address, port_min, port_max)
+
+#------------------------------------------------------------------------------
 
     #vulnerabilities scanner (CVE)
     if not open_services:
         print("\nNo open services to check for CVEs.")
         return
 
-    print("\nChecking CVEs for open services (one by one):")
+    print("\nChecking CVEs for open services:")
     print("-" * 70)
 
-    for port, product, version in open_services:
-        display_name = f"{product} {version}".strip() if version else product
-        print(f"\nPort {port} -> {display_name or '(unknown)'}")
-        if not product:
-            print("  No product name found; skipping CVE lookup.")
+    futures = []
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        for port, product, version in open_services:
+            futures.append(executor.submit(vulScan, port, product, version))
+
+    for future in as_completed(futures):
+        try:
+            port, product, version, cves = future.result()
+        except Exception as e:
+            print(f"[!] Worker error: {e}")
             continue
 
-        data = searchCVE(product, version)
-        cves = cveResults(data)
+        display_name = f"{product} {version}".strip() if version else product
+        print(f"\nPort {port} -> {display_name or '(unknown)'}")
 
-        if not cves and version:
-            time.sleep(API_CALL_DELAY)
-            print("  No CVEs found for exact version trying product-only search...")
-            data = searchCVE(product, "") #product only
-            cves = cveResults(data)
+        if not product:
+            print("  No product name found; skipped CVE lookup.")
+            continue
 
         if cves:
             for cve_id, severity, desc in cves:
-                print(f"\n {cve_id} | Severity: {severity}")
+                print(f"  {cve_id} | Severity: {severity}")
                 if desc:
-                    print(f"→ {desc[:180].strip()}...")
-
+                    print(f"    → {desc[:280].strip()}...")
         else:
-            print("\n No known CVEs found for this service and version.")
-
-        time.sleep(1.5)
+            print(" No known CVEs found for this product/version.")
 
     print("\nAll done.")
+
 
 
 if __name__ == "__main__":
