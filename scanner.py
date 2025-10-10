@@ -5,8 +5,43 @@ import sys
 import requests
 import time
 import os
+import colorama
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+#----COLOR-SETUP---------------------------------------------------------------------
+try:
+    from colorama import init as _colorama_init, Fore, Style
+    _colorama_init()
+except Exception:
+    # fallback minimal ANSI
+    class _Fore:
+        BLACK = '\033[30m';
+        RED = '\033[31m';
+        GREEN = '\033[32m';
+        YELLOW = '\033[33m'
+        BLUE = '\033[34m';
+        MAGENTA = '\033[35m';
+        CYAN = '\033[36m'
+        WHITE = '\033[37m';
+        RESET = '\033[39m'
+    class _Style:
+        BRIGHT = '\033[1m';  NORMAL = '\033[0m'; RESET_ALL = '\033[0m'
+    Fore = _Fore()
+    Style = _Style()
+
+def color_for_severity(sev: str) -> str:
+    s = (sev or "").upper()
+    if s in ("CRITICAL", "HIGH"):
+        return Fore.RED + Style.BRIGHT
+    if s == "MEDIUM":
+        return Fore.YELLOW + Style.BRIGHT
+    if s == "LOW":
+        return Fore.GREEN + Style.BRIGHT
+    return Fore.WHITE + Style.NORMAL
+
+
+
+#------------------------------------------------------------------------------
 
 NVD_API_KEY = os.getenv("NVD_API_KEY", "").strip()
 NVD_API_URL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
@@ -42,7 +77,8 @@ def nmapsV(ip_address):
 
     # table output
     print("\nScan results:")
-    print(f"{'PORT':>6}  {'STATE':>7}  {'SERVICE':<12}  {'PRODUCT':<20}  {'VERSION':<12}  {'EXTRA'}")
+    hdr = f"{'PORT':>6}  {'STATE':>7}  {'SERVICE':<12}  {'PRODUCT':<20}  {'VERSION':<12}  {'EXTRA'}"
+    print(Style.BRIGHT + hdr + Style.RESET_ALL)
     print("-" * 90)
 
     open_services = []
@@ -136,6 +172,9 @@ def vulScan(port, product, version): #works once per time
     return (port, product, version, cves)
 
 
+
+#-----MAIN--------------------------------------------------------------------
+
 def main():
 
     #port scanner
@@ -149,7 +188,7 @@ def main():
         print("\nNo open services to check for CVEs.")
         return
 
-    print("\nChecking CVEs for open services:")
+    print(f"\n{Style.BRIGHT}Checking CVEs for open services:{Style.RESET_ALL}")
     print("-" * 70)
 
     futures = []
@@ -165,7 +204,9 @@ def main():
             continue
 
         display_name = f"{product} {version}".strip() if version else product
-        print(f"\nPort {port} -> {display_name or '(unknown)'}")
+        port_label = f"{Style.BRIGHT}{Fore.BLACK}Port {port} ->{Style.RESET_ALL}"
+
+        print(f"\n{port_label} -> {display_name or '(unknown)'}")
 
         if not product:
             print("  No product name found; skipped CVE lookup.")
@@ -173,7 +214,12 @@ def main():
 
         if cves:
             for cve_id, severity, desc in cves:
-                print(f"  {cve_id} | Severity: {severity}")
+                #colors
+                cve_label = f"{Style.BRIGHT}{Fore.BLACK}{cve_id}{Style.RESET_ALL}"
+                sev_color = color_for_severity(severity)
+                reset = Style.RESET_ALL + (Fore.RESET if hasattr(Fore, 'RESET') else "")
+
+                print(f"  {cve_label} | Severity: {sev_color}{severity}{reset}")
                 if desc:
                     print(f"    → {desc[:280].strip()}...")
         else:
