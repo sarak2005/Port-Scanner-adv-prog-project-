@@ -49,38 +49,47 @@ def nmapsV(ip_address, port_min, port_max):
     print(f"\nRunning nmap -sV on {ip_address} ports {ports_spec} ... (this may take a bit)")
 
     try:
-        result = nm.scan(ip_address, ports_spec, arguments='-sV')
+        result = nm.scan(hosts=ip_address, ports="1-65535", arguments='-sS --open -T4')
     except Exception as e:
         print(f"Error running nmap: {e}")
         sys.exit(1)
 
-    host_dict = result.get('scan', {}).get(ip_address, {})
-    tcp_dict = host_dict.get('tcp', {})
 
-    if not tcp_dict:
-        print("No TCP info returned (host down or no open ports in that range).")
-        return []  # no open ports
+    #open ports
+    open_ports = []
+    if ip_address in nm.all_hosts():
+        if 'tcp' in nm[ip_address]:
+            for port, info in nm[ip_address]['tcp'].items():
+                if info.get('state') == 'open':
+                    open_ports.append(str(port))
+
+    if not open_ports:
+        print("No open TCP ports found.")
+    else:
+        port_list = ",".join(open_ports)
+        print("Open ports:", port_list)
+
+
+    # service/version detection
 
     # table output
     print("\nScan results:")
     print(f"{'PORT':>6}  {'STATE':>7}  {'SERVICE':<12}  {'PRODUCT':<20}  {'VERSION':<12}  {'EXTRA'}")
     print("-" * 90)
 
-    open_services = []  # collect (port, product, version)
-    for port, info in sorted(tcp_dict.items()):
-        state = info.get('state', 'unknown')
-        service = info.get('name', '') or ''
-        product = info.get('product', '') or ''
-        version = info.get('version', '') or ''
-        extra = info.get('extrainfo', '') or ''
+    open_services = []
+    nm.scan(hosts=ip_address, ports=port_list, arguments='-sV -T3')
+    for port, info in nm[ip_address]['tcp'].items():
+        if info.get('state') == 'open':
+            state = info.get('state', 'unknown')
+            service = info.get('name', '') or ''
+            product = info.get('product', '') or ''
+            version = info.get('version', '') or ''
+            extra = info.get('extrainfo', '') or ''
+            print(f"{port:>6}  {state:>7}  {service:<12}  {product:<20}  {version:<12}  {extra}")
 
-        print(f"{port:>6}  {state:>7}  {service:<12}  {product:<20}  {version:<12}  {extra}")
-
-        if state == 'open':
-            # prefer product; fallback to service name if product missing
-            result_product = product if product else service
-            result_version = version
-            open_services.append((port, result_product, result_version))
+            product = product if product else service
+            open_services.append((port, product, version))
 
     return open_services
 
