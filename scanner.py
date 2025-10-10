@@ -24,24 +24,6 @@ def getIpAddress():
         except Exception:
             print("You entered an invalid ip address. Try again.")
 
-def getRange():
-    port_range_pattern = re.compile(r"([0-9]+)-([0-9]+)")
-    port_min = 0
-    port_max = 65535
-
-    while True:
-        print("Please enter the range of ports you want to scan in format: <int>-<int>")
-        port_range = input("Enter port range: ").strip()
-        port_range_valid = port_range_pattern.search(port_range.replace(" ", ""))
-        if port_range_valid:
-            port_min = int(port_range_valid.group(1))
-            port_max = int(port_range_valid.group(2))
-            if 0 <= port_min <= 65535 and 0 <= port_max <= 65535 and port_min <= port_max:
-                return port_min, port_max
-            else:
-                print("Port numbers must be between 0 and 65535 and start <= end. Try again.")
-        else:
-            print("Invalid format")
 
 def nmapsV(ip_address):
     nm = nmap.PortScanner()
@@ -158,7 +140,6 @@ def main():
 
     #port scanner
     ip_address = getIpAddress()
-    #port_min, port_max = getRange()
     open_services = nmapsV(ip_address)
 
 #------------------------------------------------------------------------------
