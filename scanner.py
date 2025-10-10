@@ -43,34 +43,20 @@ def getRange():
         else:
             print("Invalid format")
 
-def nmapsV(ip_address, port_min, port_max):
+def nmapsV(ip_address):
     nm = nmap.PortScanner()
-    ports_spec = f"{port_min}-{port_max}"
-    print(f"\nRunning nmap -sV on {ip_address} ports {ports_spec} ... (this may take a bit)")
+    base_scan = '-sS' if os.geteuid() == 0 else '-sT' #-sS if root, else -sT
+    args = f"{base_scan} -sV --open -T4 --min-rate 1000 --max-retries 1 --host-timeout 60s"
+    print(f"\nRunning ( nmap {args} ) on {ip_address} ... (this may take a bit)")
 
     try:
-        result = nm.scan(hosts=ip_address, ports="1-65535", arguments='-sS --open -T4')
+         nm.scan(hosts=ip_address, arguments=args)
     except Exception as e:
         print(f"Error running nmap: {e}")
         sys.exit(1)
 
-
-    #open ports
-    open_ports = []
-    if ip_address in nm.all_hosts():
-        if 'tcp' in nm[ip_address]:
-            for port, info in nm[ip_address]['tcp'].items():
-                if info.get('state') == 'open':
-                    open_ports.append(str(port))
-
-    if not open_ports:
-        print("No open TCP ports found.")
-    else:
-        port_list = ",".join(open_ports)
-        print("Open ports:", port_list)
-
-
-    # service/version detection
+    if ip_address not in nm.all_hosts():
+        return []
 
     # table output
     print("\nScan results:")
@@ -78,8 +64,8 @@ def nmapsV(ip_address, port_min, port_max):
     print("-" * 90)
 
     open_services = []
-    nm.scan(hosts=ip_address, ports=port_list, arguments='-sV -T3')
-    for port, info in nm[ip_address]['tcp'].items():
+    tcp = nm[ip_address].get('tcp', {})
+    for port, info in sorted(tcp.items()):
         if info.get('state') == 'open':
             state = info.get('state', 'unknown')
             service = info.get('name', '') or ''
@@ -172,8 +158,8 @@ def main():
 
     #port scanner
     ip_address = getIpAddress()
-    port_min, port_max = getRange()
-    open_services = nmapsV(ip_address, port_min, port_max)
+    #port_min, port_max = getRange()
+    open_services = nmapsV(ip_address)
 
 #------------------------------------------------------------------------------
 
