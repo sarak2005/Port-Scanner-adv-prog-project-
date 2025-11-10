@@ -6,6 +6,7 @@ import requests
 import time
 import os
 import colorama
+import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 #----COLOR-SETUP---------------------------------------------------------------------
@@ -35,7 +36,7 @@ def color_for_severity(sev: str) -> str:
         return Fore.RED + Style.BRIGHT
     if s == "MEDIUM":
         return Fore.YELLOW + Style.BRIGHT
-    if s == "LOW":
+    if s in ("LOW", "N/A"):
         return Fore.GREEN + Style.BRIGHT
     return Fore.WHITE + Style.NORMAL
 
@@ -47,6 +48,30 @@ NVD_API_KEY = os.getenv("NVD_API_KEY", "").strip()
 NVD_API_URL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 HEADERS = {"apiKey": NVD_API_KEY} if NVD_API_KEY else {}
 API_CALL_DELAY = 0.6
+
+
+#not used yet
+def compute_risk_score(severity, port, cve_count=1, version_known=False):
+    sev = severity.upper()
+    score = 0
+
+    # Severity
+    sev_weights = {"CRITICAL": 10, "HIGH": 8, "LOW": 2}
+    score += sev_weights.get(sev, 0)
+
+    # Port exposure
+    high_risk_ports = [21, 22, 23, 25, 80, 443, 445, 3389]
+    if port in high_risk_ports:
+        score += 2
+
+    # Version confidence
+    if version_known:
+        score += 1
+
+    # More CVEs = slightly higher risk
+    score += min(5, cve_count)
+
+    return score
 
 
 def getIpAddress():
@@ -144,7 +169,7 @@ def cveResults(data): #filters data
             severity = "N/A"
         if cve_id:
             results.append((cve_id, severity, desc))
-        return results
+    return results
 
 
 def vulScan(port, product, version): #works once per time
@@ -157,25 +182,37 @@ def vulScan(port, product, version): #works once per time
         version = ""
 
     display_name = f"{product} {version}".strip()
-    print(f"\nStarting CVE lookup for port {port}: {display_name or '(unknown)'}")
+    #debug
+    #print(f"\nStarting CVE lookup for port {port}: {display_name or '(unknown)'}")
 
     data = searchCVE(product, version)
     cves = cveResults(data)
 
     if not cves and version :
         time.sleep(API_CALL_DELAY)
+        print(f"\n CVE lookup for port {port}: {display_name or '(unknown)'}")
         print("  No CVEs found for exact version trying product-only search...")
         data = searchCVE(product, "")  # product only
         cves = cveResults(data)
 
     time.sleep(1.5)
     return (port, product, version, cves)
-
+#return (port, product, version, cves, risk_score)
 
 
 #-----MAIN--------------------------------------------------------------------
 
 def main():
+
+    #parser
+    parser = argparse.ArgumentParser(
+        description="Vulnerability Scanner with Risk Scoring"
+    )
+    parser.add_argument("--severity", choices=["LOW", "HIGH", "CRITICAL", "N/A"],
+                        help="Show only vulnerabilities of this severity level")
+
+    args = parser.parse_args()
+    severity_filter = args.severity
 
     #port scanner
     ip_address = getIpAddress()
@@ -196,38 +233,59 @@ def main():
         for port, product, version in open_services:
             futures.append(executor.submit(vulScan, port, product, version))
 
-    for future in as_completed(futures):
-        try:
-            port, product, version, cves = future.result()
-        except Exception as e:
-            print(f"[!] Worker error: {e}")
-            continue
+        # gather results (port scanning)
+        for future in as_completed(futures):
+            try:
+                port, product, version, cves = future.result()
+            except Exception as e:
+                print(f"[!] Worker error: {e}")
+                continue
 
-        display_name = f"{product} {version}".strip() if version else product
-        port_label = f"{Style.BRIGHT}{Fore.BLACK}Port {port} ->{Style.RESET_ALL}"
+            if not product:
+                print("  No product name found; skipped CVE lookup.")
+                continue
 
-        print(f"\n{port_label} -> {display_name or '(unknown)'}")
+            display_name = f"{product} {version}".strip() if version else product
 
-        if not product:
-            print("  No product name found; skipped CVE lookup.")
-            continue
+            filtered_cves = []
+            for cve_id, sev_raw, desc in cves:
+                sev_up = (sev_raw or "N/A").upper()
 
-        if cves:
-            for cve_id, severity, desc in cves:
-                #colors
-                cve_label = f"{Style.BRIGHT}{Fore.BLACK}{cve_id}{Style.RESET_ALL}"
-                sev_color = color_for_severity(severity)
-                reset = Style.RESET_ALL + (Fore.RESET if hasattr(Fore, 'RESET') else "")
+                if not severity_filter:
+                    match = True  #no filter -> keep all
+                else:
+                    sf = severity_filter.upper()
+                    if sf == "HIGH":
+                        match = sev_up in ("HIGH", "CRITICAL")
+                    elif sf == "LOW":
+                        match = sev_up in ("LOW", "N/A")
+                    else:
+                        #CRITICAL, "N/A"
+                        match = sev_up == sf
 
-                print(f"  {cve_label} | Severity: {sev_color}{severity}{reset}")
-                if desc:
-                    print(f"    → {desc[:280].strip()}...")
-        else:
-            print(" No known CVEs found for this product/version.")
+                if match:
+                    filtered_cves.append((cve_id, sev_up, desc))
 
-    print("\nAll done.")
+            # Print results for this port
+            if filtered_cves:
+                port_label = f"{Style.BRIGHT}{Fore.YELLOW}Port {port} ->{Style.RESET_ALL}"
+                for cve_id, severity, desc in filtered_cves:
+                    cve_label = f"{Style.BRIGHT}{Fore.YELLOW}{cve_id}{Style.RESET_ALL}"
+                    sev_color = color_for_severity(severity)
+                    reset = Style.RESET_ALL + (Fore.RESET if hasattr(Fore, 'RESET') else "")
 
+                    # port header
+                    print(f"\n{port_label} {display_name or '(unknown)'}")
+                    print(f"  {cve_label} | Severity: {sev_color}{severity}{reset}")
+                    if desc:
+                        print(f"    → {desc[:280].strip()}...")
+            else:
+                if severity_filter:
+                    print(f"\n{Style.BRIGHT}{Fore.BLACK}Port {port} -> {display_name or '(unknown)'}: no CVEs at severity {severity_filter}{Style.RESET_ALL}")
+                else:
+                    print(f"\nPort {port} -> {display_name or '(unknown)'}: No known CVEs found for this product/version.")
 
+    print(f"\n{Style.BRIGHT}{Fore.CYAN}DONE, filtering mode:{Style.RESET_ALL} {severity_filter.upper() if severity_filter else 'ALL'}")
 
 if __name__ == "__main__":
     main()
