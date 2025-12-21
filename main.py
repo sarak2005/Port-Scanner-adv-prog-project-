@@ -6,7 +6,6 @@ from scanner.port_scanner import PortScanner
 from scanner.cve_scanner import CVEScanner
 from ui.observers import ScanSubject, ConsoleObserver
 from ui.colors import Style, Fore
-from ui.output import display_results
 
 
 def main():
