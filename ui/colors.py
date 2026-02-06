@@ -4,7 +4,6 @@ try:
 
     _colorama_init()
 except ImportError:
-    # Fallback minimal ANSI colors
     class _Fore:
         BLACK = '\033[30m';
         RED = '\033[31m';
@@ -27,15 +26,13 @@ except ImportError:
     Style = _Style()
 
 
-def color_for_severity(severity: str) -> str:
-    sev = (severity or "").upper()
+def color_for_severity(sev: str) -> str:
+    s = (sev or "").upper()
+    if s in ("CRITICAL", "HIGH"):
+        return Fore.RED + Style.BRIGHT
+    if s == "MEDIUM":
+        return Fore.YELLOW + Style.BRIGHT
+    if s in ("LOW", "N/A"):
+        return Fore.GREEN + Style.BRIGHT
+    return Fore.WHITE + Style.NORMAL
 
-    color_map = {
-        "CRITICAL": Fore.RED + Style.BRIGHT,
-        "HIGH": Fore.RED + Style.BRIGHT,
-        "MEDIUM": Fore.YELLOW + Style.BRIGHT,
-        "LOW": Fore.GREEN + Style.BRIGHT,
-        "N/A": Fore.GREEN + Style.BRIGHT,
-    }
-
-    return color_map.get(sev, Fore.WHITE + Style.NORMAL)

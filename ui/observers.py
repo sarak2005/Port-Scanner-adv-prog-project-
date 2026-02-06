@@ -22,7 +22,6 @@ class ConsoleObserver(ScanObserver):
         else:
             print(f"\nPort {port} → {display_name}: No CVEs found")
 
-
 class ScanSubject:
     def __init__(self):
         self.observers = []

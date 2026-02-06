@@ -9,44 +9,41 @@ from ui.colors import Style, Fore
 
 
 def main():
+    #parser
     parser = argparse.ArgumentParser(
-        description="Vulnerability Scanner with Risk Scoring",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        #filters
-        epilog="""
-Examples:
-  %(prog)s                         # Interactive mode
-  %(prog)s --severity CRITICAL     # Show only critical vulnerabilities
-  %(prog)s --severity HIGH         # Show high and critical vulnerabilities
-        """
+        description="Vulnerability Scanner with Risk Scoring"
     )
-
-    parser.add_argument(
-        "--severity",
-        choices=["LOW", "MEDIUM", "HIGH", "CRITICAL", "N/A"],
-        help="Filter results by severity level"
-    )
+    parser.add_argument("--severity",
+                        choices=["LOW", "HIGH", "CRITICAL", "N/A"],
+                        help="Show only vulnerabilities of this severity level")
 
     args = parser.parse_args()
+    severity_filter = args.severity
+
+
 
     # Initialize components
     port_scanner = PortScanner()
     cve_scanner = CVEScanner()
     scan_subject = ScanSubject()
+
     scan_subject.attach(ConsoleObserver())
 
-    #get target IP (ip input)
     print(f"{Style.BRIGHT}{Fore.CYAN}=== Vulnerability Scanner ==={Style.RESET_ALL}")
+
+    #get target IP (ip input)
     ip_address = get_ip_input()
 
-    #port scan
+    #1- port scan ---------------------------------------------------------------
     open_services = port_scanner.scan(ip_address)
 
     if not open_services:
         print("\nNo open services found.")
         return
 
-    #vulnerabilities scan
+
+
+    #2- vulnerabilities scan ---------------------------------------------------------------
     print(f"\n{Style.BRIGHT}Checking for vulnerabilities...{Style.RESET_ALL}")
 
     with ThreadPoolExecutor(max_workers=5) as executor:
@@ -69,8 +66,10 @@ Examples:
     print(f"\n{Style.BRIGHT}{Fore.GREEN}Scan completed!{Style.RESET_ALL}")
 
 
+
 #scan a single service for vulnerabilities
 def scan_service(port, product, version, cve_scanner, scan_subject, severity_filter):
+
     cves = cve_scanner.scan_product(product, version)
 
     #severity filter (if specified)

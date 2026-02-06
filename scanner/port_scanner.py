@@ -9,7 +9,8 @@ class PortScanner:
     def __init__(self):
         self.scanner = nmap.PortScanner()
 
-    #scan - returns : list of tuples (port, product, version)
+
+    #scan - run nmap
     def scan(self, ip_address: str) -> list:
         #nmap arguments
         args_parts = [
@@ -23,8 +24,9 @@ class PortScanner:
         args = ' '.join(args_parts)
 
         print(f"\nRunning: nmap {args} on {ip_address}")
-        print("(This may take a few minutes)...")
+        print("(This may take a bit)...")
 
+        #run nmap
         try:
             self.scanner.scan(hosts=ip_address, arguments=args)
         except Exception as e:
@@ -35,6 +37,8 @@ class PortScanner:
             return []
 
         return self._parse_results(ip_address)
+
+
 
     #output (open ports..) - returns openservecies
     def _parse_results(self, ip_address: str) -> list:
@@ -60,10 +64,12 @@ class PortScanner:
 
         return open_services
 
+
     # helper function to display 1 ports info
     def _display_port_info(self, port: int, info: dict):
         print(f"{port:>6}  "
               f"{info.get('state', 'unknown'):>7}  "
               f"{info.get('name', ''):<12}  "
               f"{info.get('product', ''):<20}  "
-              f"{info.get('version', ''):<12}")
+              f"{info.get('version', ''):<12}"
+              f"{info.get('extra', ''):<20}")
