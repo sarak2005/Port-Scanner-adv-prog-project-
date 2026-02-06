@@ -29,7 +29,7 @@ def main():
 
     scan_subject.attach(ConsoleObserver())
 
-    print(f"{Style.BRIGHT}{Fore.CYAN}=== Vulnerability Scanner ==={Style.RESET_ALL}")
+    print(f"{Style.BRIGHT}{Fore.CYAN}========= Vulnerability Scanner ========={Style.RESET_ALL}")
 
     #get target IP (ip input)
     ip_address = get_ip_input()
@@ -45,6 +45,10 @@ def main():
 
     #2- vulnerabilities scan ---------------------------------------------------------------
     print(f"\n{Style.BRIGHT}Checking for vulnerabilities...{Style.RESET_ALL}")
+
+    print("\n" + "=" * 60)
+    print(f"{Style.BRIGHT}{Fore.CYAN}VULNERABILITIES (CVEs){Style.RESET_ALL}")
+    print("=" * 60)
 
     with ThreadPoolExecutor(max_workers=5) as executor:
         futures = []

@@ -1,6 +1,6 @@
 import nmap
 import sys
-from ui.colors import Style
+from ui.colors import Style, Fore
 from config import DEFAULT_NMAP_ARGS
 
 
@@ -23,7 +23,7 @@ class PortScanner:
         ]
         args = ' '.join(args_parts)
 
-        print(f"\nRunning: nmap {args} on {ip_address}")
+        print(f"\n{Style.BRIGHT}Running: nmap {args} on {ip_address}{Style.RESET_ALL}")
         print("(This may take a bit)...")
 
         #run nmap
@@ -43,7 +43,7 @@ class PortScanner:
     #output (open ports..) - returns openservecies
     def _parse_results(self, ip_address: str) -> list:
         print("\n" + "=" * 60)
-        print("SCAN RESULTS")
+        print(f"{Style.BRIGHT}{Fore.CYAN}SCAN RESULTS{Style.RESET_ALL}")
         print("=" * 60)
 
         header = f"{'PORT':>6}  {'STATE':>7}  {'SERVICE':<12}  {'PRODUCT':<20}  {'VERSION':<12}"

@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import List, Tuple
-from ui.colors import Style, Fore
+from ui.colors import Style, Fore, color_for_severity
+
 
 #Observer pattern for scan results
 
@@ -14,13 +15,27 @@ class ScanObserver(ABC):
 class ConsoleObserver(ScanObserver):
     def update(self, port: int, product: str, version: str, cves: List[Tuple]):
         display_name = f"{product} {version}".strip() if version else product
+        port_label = f"{Style.BRIGHT}{Fore.YELLOW}Port {port} ->{Style.RESET_ALL}"
 
         if cves:
-            print(f"\nPort {port} → {display_name}: {len(cves)} CVEs found")
+            # Print port header ONCE
+            print(f"\n{port_label} → {display_name}:")
+
+            # Then list all CVEs
             for cve_id, severity, desc in cves:
-                print(f"  {cve_id} | Severity: {severity} | {desc[:80]}...")
+                cve_label = f"{Style.BRIGHT}{Fore.MAGENTA}{cve_id}{Style.RESET_ALL}"
+                sev_color = color_for_severity(severity)
+                reset = Style.RESET_ALL + (Fore.RESET if hasattr(Fore, 'RESET') else "")
+
+                print(f"  {cve_label} | Severity: {sev_color}{severity}{reset}")
+                if desc:
+                    print(f"    → {desc[:280].strip()}...")
+
+            # Optional: Show count
+            print(f"  {Style.DIM}Total: {len(cves)} vulnerability(ies){Style.RESET_ALL}")
         else:
-            print(f"\nPort {port} → {display_name}: No CVEs found")
+            print(f"\n{port_label} → {display_name}: No CVEs found")
+
 
 class ScanSubject:
     def __init__(self):
